@@ -9,6 +9,7 @@ import type {
   TableSession,
 } from "../domain/model.js";
 import type { Clock, IdGenerator, MenuCatalog, SessionRepository } from "./ports.js";
+import type { PaymentEvaluation, PaymentGateway, PaymentIntent } from "./payment-gateway.js";
 
 export interface PlaceOrderInput {
   dinerId: string;
@@ -35,6 +36,7 @@ export class RestaurantService {
     private readonly menu: MenuCatalog,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
+    private readonly paymentGateway: PaymentGateway,
   ) {}
 
   async listMenu() {
@@ -63,6 +65,12 @@ export class RestaurantService {
 
   async getTable(sessionId: string): Promise<TableSession> {
     return this.requireSession(sessionId);
+  }
+
+  async getActiveTableByNumber(tableNumber: number): Promise<TableSession> {
+    const session = (await this.sessions.list()).find((candidate) => candidate.tableNumber === tableNumber && candidate.status !== "CLOSED");
+    assertDomain(session, "NOT_FOUND", `La mesa ${tableNumber} no tiene una sesión activa.`);
+    return session;
   }
 
   async joinTable(sessionId: string, name: string) {
@@ -182,6 +190,38 @@ export class RestaurantService {
     assertDomain(!session.paymentMode || session.paymentMode === input.mode, "CONFLICT", "No se pueden mezclar formas de división en la misma cuenta.");
     session.paymentMode = input.mode;
 
+    const prepared = this.preparePayment(session, input);
+    const policyEvaluation = await this.paymentGateway.evaluate(prepared.intent);
+    assertDomain(policyEvaluation.decision === "ALLOW", "INVALID_STATE", `WDK rechazó el pago: ${policyEvaluation.reason}`);
+    const payment: SimulatedPayment = {
+      id: this.ids.next("payment"),
+      mode: input.mode,
+      ...(input.mode === "INDIVIDUAL" && input.dinerId ? { dinerId: input.dinerId } : {}),
+      subtotalInCents: prepared.subtotalInCents,
+      tipPercent: input.tipPercent,
+      tipInCents: prepared.tipInCents,
+      totalInCents: prepared.subtotalInCents + prepared.tipInCents,
+      status: "SIMULATED_APPROVED",
+      policyEvaluation: policyEvaluation as SimulatedPayment["policyEvaluation"],
+      createdAt: this.clock.now().toISOString(),
+    };
+    session.payments.push(payment);
+
+    const dinersWithConsumption = this.buildBill(session, 0).diners.filter((diner) => diner.subtotalInCents > 0);
+    const allIndividualsPaid = input.mode === "INDIVIDUAL" && dinersWithConsumption.every((diner) => session.payments.some((payment) => payment.mode === "INDIVIDUAL" && payment.dinerId === diner.dinerId));
+    if (input.mode === "TABLE" || allIndividualsPaid) session.status = "CLOSED";
+    await this.touchAndSave(session);
+    return payment;
+  }
+
+  async evaluatePayment(sessionId: string, input: SimulatedPaymentInput): Promise<PaymentEvaluation> {
+    const session = await this.requireSession(sessionId);
+    assertDomain(session.status === "BILL_REQUESTED", "INVALID_STATE", "Primero se debe solicitar la cuenta.");
+    this.validateTip(input.tipPercent);
+    return this.paymentGateway.evaluate(this.preparePayment(session, input).intent);
+  }
+
+  private preparePayment(session: TableSession, input: SimulatedPaymentInput) {
     const bill = this.buildBill(session, input.tipPercent);
     let subtotalInCents = bill.subtotalInCents;
     if (input.mode === "INDIVIDUAL") {
@@ -193,26 +233,17 @@ export class RestaurantService {
     } else {
       assertDomain(session.payments.length === 0, "CONFLICT", "La mesa ya tiene un pago registrado.");
     }
-
     const tipInCents = this.calculateTip(subtotalInCents, input.tipPercent);
-    const payment: SimulatedPayment = {
-      id: this.ids.next("payment"),
-      mode: input.mode,
-      ...(input.mode === "INDIVIDUAL" && input.dinerId ? { dinerId: input.dinerId } : {}),
+    const intent: PaymentIntent = {
+      sessionId: session.id,
+      tableNumber: session.tableNumber,
+      paymentMode: input.mode,
+      ...(input.dinerId ? { dinerId: input.dinerId } : {}),
       subtotalInCents,
-      tipPercent: input.tipPercent,
       tipInCents,
       totalInCents: subtotalInCents + tipInCents,
-      status: "SIMULATED_APPROVED",
-      createdAt: this.clock.now().toISOString(),
     };
-    session.payments.push(payment);
-
-    const dinersWithConsumption = this.buildBill(session, 0).diners.filter((diner) => diner.subtotalInCents > 0);
-    const allIndividualsPaid = input.mode === "INDIVIDUAL" && dinersWithConsumption.every((diner) => session.payments.some((payment) => payment.mode === "INDIVIDUAL" && payment.dinerId === diner.dinerId));
-    if (input.mode === "TABLE" || allIndividualsPaid) session.status = "CLOSED";
-    await this.touchAndSave(session);
-    return payment;
+    return { subtotalInCents, tipInCents, intent };
   }
 
   private async requireSession(sessionId: string): Promise<TableSession> {

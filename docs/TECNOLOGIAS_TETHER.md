@@ -4,7 +4,9 @@ Fecha: 22 de agosto de 2026.
 
 ## Estado
 
-Todo lo descrito en este documento está **PROPUESTO**. Ningún SDK de WDK, QVAC o Pear está instalado ni integrado todavía.
+- **WDK — IMPLEMENTADO Y VERIFICADO:** simulación local de políticas `ALLOW/DENY`, sin transmisión.
+- **QVAC — PROPUESTO:** todavía no instalado.
+- **Pear — FUTURO:** todavía no instalado.
 
 ## Recomendación
 
@@ -12,13 +14,13 @@ Todo lo descrito en este documento está **PROPUESTO**. Ningún SDK de WDK, QVAC
 2. **QVAC como experimento opcional:** procesamiento local de aclaraciones de cocina.
 3. **Pear después del hackathon:** comunicación y replicación P2P entre dispositivos del restaurante.
 
-## WDK: integración recomendada
+## WDK: integración implementada
 
 ### Valor para Mesa Abierta
 
 WDK se relaciona directamente con la parte más diferencial del producto: dividir y pagar la cuenta. Su sistema de políticas permite evaluar una operación con reglas ALLOW/DENY y ofrece un espejo `simulate` que no ejecuta, firma ni transmite la transacción.
 
-### Flujo propuesto
+### Flujo implementado
 
 1. El sistema calcula cuánto debe pagar cada comensal.
 2. El comensal elige propina y solicita pagar.
@@ -30,7 +32,7 @@ WDK se relaciona directamente con la parte más diferencial del producto: dividi
 
 ### Adaptación del código
 
-Agregar una interfaz de aplicación independiente del SDK:
+Se agregó una interfaz de aplicación independiente del SDK:
 
 ```ts
 interface PaymentGateway {
@@ -38,10 +40,10 @@ interface PaymentGateway {
 }
 ```
 
-Implementaciones previstas:
+Implementaciones actuales:
 
-- `SimulatedPaymentGateway`: comportamiento actual y determinista.
-- `WdkPolicySimulationGateway`: adaptador real de WDK que llama a `account.simulate.transfer(...)`.
+- `WdkPolicySimulationGateway`: adaptador real que llama a `account.simulate.transfer(...)`.
+- `SimulatedFallbackGateway`: política determinista de respaldo si WDK no puede inicializarse.
 
 Esto evita acoplar las reglas de restaurante a una blockchain y permite continuar con la demo si WDK, la red o el proveedor fallan.
 
@@ -57,7 +59,7 @@ Esto evita acoplar las reglas de restaurante a una blockchain y permite continua
 - Nunca usar mainnet en el MVP.
 - Nunca usar una wallet personal.
 - Nunca guardar seed phrases, claves o passphrases en GitHub.
-- Usar una wallet descartable de testnet y almacenamiento cifrado.
+- Generar una wallet descartable solamente en memoria y eliminarla después de evaluar.
 - No imprimir secretos en logs, capturas o la demo.
 - Registrar solamente datos públicos: red, token, monto, decisión y motivo.
 - Fallar de manera segura cuando una regla no puede evaluarse.

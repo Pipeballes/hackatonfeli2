@@ -47,6 +47,17 @@ export interface SimulatedPayment {
   tipInCents: number;
   totalInCents: number;
   status: "SIMULATED_APPROVED";
+  policyEvaluation: {
+    provider: "WDK" | "SIMULATED_FALLBACK";
+    decision: "ALLOW";
+    reason: string;
+    policyId: string;
+    matchedRule: string;
+    network: "ethereum-sepolia";
+    asset: "USDt-testnet";
+    amountInBaseUnits: string;
+    broadcast: false;
+  };
   createdAt: string;
 }
 

@@ -6,9 +6,10 @@ import { RestaurantService } from "../src/application/restaurant-service.js";
 import { createApiHandler } from "../src/api/handler.js";
 import { demoMenu } from "../src/config/demo-menu.js";
 import { InMemoryMenuCatalog, InMemorySessionRepository, systemClock, uuidGenerator } from "../src/infrastructure/in-memory.js";
+import { SimulatedFallbackGateway } from "../src/infrastructure/wdk-policy-gateway.js";
 
 test("la API expone salud, menú y creación de una comanda", async () => {
-  const service = new RestaurantService(new InMemorySessionRepository(), new InMemoryMenuCatalog(demoMenu), systemClock, uuidGenerator);
+  const service = new RestaurantService(new InMemorySessionRepository(), new InMemoryMenuCatalog(demoMenu), systemClock, uuidGenerator, new SimulatedFallbackGateway());
   const server = createServer(createApiHandler(service));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;

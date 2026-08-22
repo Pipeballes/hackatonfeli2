@@ -19,6 +19,9 @@ export function createApiHandler(service: RestaurantService) {
         return json(response, 201, await service.openTable(body.tableNumber));
       }
       if (parts[0] === "api" && parts[1] === "tables" && parts[2]) {
+        if (method === "GET" && parts[2] === "by-number" && parts[3]) {
+          return json(response, 200, await service.getActiveTableByNumber(Number(parts[3])));
+        }
         const sessionId = parts[2];
         if (method === "GET" && parts.length === 3) return json(response, 200, await service.getTable(sessionId));
         if (method === "POST" && parts[3] === "diners") {
@@ -41,6 +44,10 @@ export function createApiHandler(service: RestaurantService) {
         if (method === "POST" && parts[3] === "payments" && parts[4] === "simulated") {
           const body = await readJson<Parameters<RestaurantService["paySimulated"]>[1]>(request);
           return json(response, 201, await service.paySimulated(sessionId, body));
+        }
+        if (method === "POST" && parts[3] === "payments" && parts[4] === "evaluate") {
+          const body = await readJson<Parameters<RestaurantService["evaluatePayment"]>[1]>(request);
+          return json(response, 200, await service.evaluatePayment(sessionId, body));
         }
       }
       if (method === "GET" && url.pathname === "/api/kitchen/orders") {

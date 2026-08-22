@@ -6,9 +6,9 @@ Mesa Abierta propone una experiencia de pedidos por QR para restaurantes. Cada i
 
 ## Estado actual
 
-- **IMPLEMENTADO:** motor TypeScript y API HTTP para mesas, comensales, pedidos, cocina, cuenta, propina y pagos simulados.
-- **VERIFICADO:** compilación y pruebas automáticas del flujo principal.
-- **PROPUESTO:** interfaz web responsive accesible mediante un QR y base de datos persistente.
+- **IMPLEMENTADO:** motor TypeScript, API HTTP, interfaz responsive de comensal y cocina, y evaluación de pagos mediante políticas reales de WDK.
+- **VERIFICADO:** compilación del backend y la web, más 8 pruebas automáticas, incluyendo WDK `ALLOW` y `DENY` sin transmisión.
+- **PROPUESTO:** base de datos persistente, generación de QR y despliegue público.
 - **FUTURO:** pagos reales, facturación e integraciones con sistemas del restaurante.
 
 ## Ejecutar el motor
@@ -21,11 +21,22 @@ npm test
 npm run dev
 ```
 
-El servidor queda disponible en `http://localhost:3000`. La ruta `GET /health` permite verificarlo.
+La interfaz queda disponible en:
+
+- Comensal: `http://localhost:5173/mesa/12`
+- Cocina: `http://localhost:5173/cocina`
+
+La API utiliza `http://localhost:3000`. La ruta `GET /health` permite verificarla.
 
 > La persistencia actual es simulada en memoria. Los datos se eliminan al reiniciar el servidor. No hay pagos reales ni conexión con una base de datos externa.
 
-La organización técnica y las rutas disponibles están documentadas en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+La organización técnica y las rutas disponibles están documentadas en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). La integración WDK está detallada en [`docs/WDK.md`](docs/WDK.md).
+
+## WDK en el MVP
+
+El pago sigue siendo simulado. Antes de aprobarlo, el backend crea una intención de transferencia de USDt de prueba y llama a `account.simulate.transfer(...)`. WDK devuelve `ALLOW` o `DENY` según el destinatario y el límite configurado.
+
+La aplicación no llama a `transfer()` ni a `sendTransaction()`, no transmite fondos y no guarda una seed phrase.
 
 ## Problema
 

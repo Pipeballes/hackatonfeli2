@@ -5,6 +5,7 @@ import type { Clock, IdGenerator } from "../src/application/ports.js";
 import { demoMenu } from "../src/config/demo-menu.js";
 import { DomainError } from "../src/domain/errors.js";
 import { InMemoryMenuCatalog, InMemorySessionRepository } from "../src/infrastructure/in-memory.js";
+import { SimulatedFallbackGateway } from "../src/infrastructure/wdk-policy-gateway.js";
 
 class FixedClock implements Clock {
   private tick = 0;
@@ -17,7 +18,7 @@ class SequentialIds implements IdGenerator {
 }
 
 function setup() {
-  return new RestaurantService(new InMemorySessionRepository(), new InMemoryMenuCatalog(demoMenu), new FixedClock(), new SequentialIds());
+  return new RestaurantService(new InMemorySessionRepository(), new InMemoryMenuCatalog(demoMenu), new FixedClock(), new SequentialIds(), new SimulatedFallbackGateway());
 }
 
 async function deliver(service: RestaurantService, orderId: string) {
