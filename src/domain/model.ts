@@ -61,13 +61,37 @@ export interface SimulatedPayment {
   createdAt: string;
 }
 
+export interface WdkCliPayment {
+  id: string;
+  mode: PaymentMode;
+  dinerId?: string;
+  subtotalInCents: number;
+  tipPercent: number;
+  tipInCents: number;
+  totalInCents: number;
+  status: "WDK_CLI_BROADCAST";
+  network: "sepolia";
+  asset: "USDT";
+  fromWallet: string;
+  fromAddress: string;
+  toWallet: string;
+  toAddress: string;
+  amount: string;
+  transactionHash: string | null;
+  balanceBefore: { client: string | null; business: string | null };
+  balanceAfter: { client: string | null; business: string | null };
+  createdAt: string;
+}
+
+export type PaymentRecord = SimulatedPayment | WdkCliPayment;
+
 export interface TableSession {
   id: string;
   tableNumber: number;
   status: SessionStatus;
   diners: Diner[];
   orders: Order[];
-  payments: SimulatedPayment[];
+  payments: PaymentRecord[];
   paymentMode?: PaymentMode;
   openedAt: string;
   updatedAt: string;
