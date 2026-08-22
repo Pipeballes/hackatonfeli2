@@ -6,10 +6,26 @@ Mesa Abierta propone una experiencia de pedidos por QR para restaurantes. Cada i
 
 ## Estado actual
 
-- **IMPLEMENTADO:** todavía no hay aplicación en este repositorio.
-- **VERIFICADO:** el repositorio fue creado y su rama principal está disponible.
-- **PROPUESTO:** aplicación web responsive accesible mediante un QR asociado a cada mesa.
+- **IMPLEMENTADO:** motor TypeScript y API HTTP para mesas, comensales, pedidos, cocina, cuenta, propina y pagos simulados.
+- **VERIFICADO:** compilación y pruebas automáticas del flujo principal.
+- **PROPUESTO:** interfaz web responsive accesible mediante un QR y base de datos persistente.
 - **FUTURO:** pagos reales, facturación e integraciones con sistemas del restaurante.
+
+## Ejecutar el motor
+
+Requiere Node.js 22 o superior.
+
+```bash
+npm install
+npm test
+npm run dev
+```
+
+El servidor queda disponible en `http://localhost:3000`. La ruta `GET /health` permite verificarlo.
+
+> La persistencia actual es simulada en memoria. Los datos se eliminan al reiniciar el servidor. No hay pagos reales ni conexión con una base de datos externa.
+
+La organización técnica y las rutas disponibles están documentadas en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
 
 ## Problema
 
@@ -81,6 +97,6 @@ Esto permite que cocina detecte inmediatamente qué se agregó y cuándo.
 - Métricas avanzadas de tiempos.
 - Cambio de estado producto por producto.
 
-## Decisión pendiente
+## Decisión adoptada para el motor del MVP
 
-Confirmar si para el MVP cocina actualizará la comanda completa, como se recomienda, o si cada producto tendrá un estado independiente.
+Cocina actualiza el estado de la comanda completa. El cambio de estado producto por producto queda fuera del MVP.
