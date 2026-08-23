@@ -3,6 +3,7 @@ import type { HackathonExtensionsService } from "../application/hackathon-extens
 import type { RestaurantService } from "../application/restaurant-service.js";
 import { DomainError } from "../domain/errors.js";
 import type { OrderStatus } from "../domain/model.js";
+import { tryQvacMenuAssistant } from "../infrastructure/qvac-menu-assistant.js";
 
 const orderStatuses = new Set<OrderStatus>(["RECEIVED", "PREPARING", "READY", "DELIVERED"]);
 
@@ -18,7 +19,9 @@ export function createApiHandler(service: RestaurantService, extensions?: Hackat
       if (method === "POST" && url.pathname === "/api/menu/assistant") {
         requireExtensions(extensions);
         const body = await readJson<{ question: string }>(request);
-        return json(response, 200, await extensions.askMenuAssistant(body.question));
+        const grounded = await extensions.askMenuAssistant(body.question);
+        const qvac = await tryQvacMenuAssistant(body.question, grounded);
+        return json(response, 200, qvac ?? grounded);
       }
       if (method === "GET" && url.pathname === "/api/wdk/wallets") {
         requireExtensions(extensions);
@@ -33,9 +36,7 @@ export function createApiHandler(service: RestaurantService, extensions?: Hackat
         return json(response, 201, await service.openTable(body.tableNumber));
       }
       if (parts[0] === "api" && parts[1] === "tables" && parts[2]) {
-        if (method === "GET" && parts[2] === "by-number" && parts[3]) {
-          return json(response, 200, await service.getActiveTableByNumber(Number(parts[3])));
-        }
+        if (method === "GET" && parts[2] === "by-number" && parts[3]) return json(response, 200, await service.getActiveTableByNumber(Number(parts[3])));
         const sessionId = parts[2];
         if (method === "GET" && parts.length === 3) return json(response, 200, await service.getTable(sessionId));
         if (method === "POST" && parts[3] === "diners") {
