@@ -19,4 +19,4 @@ export interface WalletBalances { client: string | null; business: string | null
 export interface CheckoutPreview { previewId: string; expiresAt: string; network: "sepolia"; asset: "USDT"; fromWallet: string; fromAddress: string; toWallet: string; toAddress: string; amount: string; balanceBefore: WalletBalances; dryRun: true; cliResult: unknown; }
 export interface CheckoutPreviewResponse { policyEvaluation: PaymentEvaluation; preview: CheckoutPreview; }
 export interface FinancialSummary { payments: number; clientExpensesInCents: number; businessRevenueInCents: number; tipsInCents: number; usdtReceived: string | null; businessProfitInCents: null; profitReason: string; }
-export interface MenuAssistantResponse { engine: "LOCAL_RECOMMENDATION_RULES"; title: string; message: string; items: MenuItem[]; note: string; }
+export interface MenuAssistantResponse { engine: "QVAC_LOCAL" | "LOCAL_RECOMMENDATION_RULES"; title: string; message: string; items: MenuItem[]; note: string; }
