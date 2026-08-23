@@ -80,15 +80,22 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
       "send", "--network", "sepolia", "--to", preview.toAddress,
       "--amount", preview.amount, "--token", this.tokenTicker, "--wallet", preview.fromWallet, "--json",
     ]);
-    const walletsAfter = await this.getWallets();
+
+    // A successful `wdk send` is the irreversible point. If the optional balance
+    // refresh fails afterwards, we still return a receipt so the application
+    // records the broadcast and never encourages a second payment.
+    let balanceAfter = { client: null, business: null } as CheckoutReceipt["balanceAfter"];
+    try {
+      const walletsAfter = await this.getWallets();
+      balanceAfter = { client: walletsAfter.client.balance, business: walletsAfter.business.balance };
+    } catch { /* post-broadcast balance refresh is informative only */ }
+
     return {
       previewId, network: "sepolia", asset: "USDT",
       fromWallet: preview.fromWallet, fromAddress: preview.fromAddress,
       toWallet: preview.toWallet, toAddress: preview.toAddress, amount: preview.amount,
       transactionHash: findByKeys(cliResult, ["transactionHash", "txHash", "hash", "id"]),
-      balanceBefore: preview.balanceBefore,
-      balanceAfter: { client: walletsAfter.client.balance, business: walletsAfter.business.balance },
-      broadcast: true, cliResult,
+      balanceBefore: preview.balanceBefore, balanceAfter, broadcast: true, cliResult,
     };
   }
 
@@ -148,8 +155,9 @@ export function createWdkCliRunner(executable: string): CliRunner {
     const child = spawn(executable, args, { windowsHide: true, shell: process.platform === "win32" });
     let stdout = ""; let stderr = ""; const max = 1_000_000;
     let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finishReject = (error: Error) => { if (settled) return; settled = true; clearTimeout(timer); reject(error); };
-    const timer = setTimeout(() => { child.kill(); finishReject(new Error("WDK CLI excedió el tiempo máximo de respuesta.")); }, 30_000);
+    timer = setTimeout(() => { child.kill(); finishReject(new Error("WDK CLI excedió el tiempo máximo de respuesta.")); }, 30_000);
     child.stdout.on("data", (chunk) => { stdout += String(chunk); if (stdout.length > max) child.kill(); });
     child.stderr.on("data", (chunk) => { stderr += String(chunk); if (stderr.length > max) child.kill(); });
     child.on("error", (error) => finishReject(new Error(`No se pudo ejecutar WDK CLI: ${error.message}`)));
