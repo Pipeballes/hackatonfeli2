@@ -1,11 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { HackathonExtensionsService } from "../application/hackathon-extensions-service.js";
 import type { RestaurantService } from "../application/restaurant-service.js";
 import { DomainError } from "../domain/errors.js";
 import type { OrderStatus } from "../domain/model.js";
 
 const orderStatuses = new Set<OrderStatus>(["RECEIVED", "PREPARING", "READY", "DELIVERED"]);
 
-export function createApiHandler(service: RestaurantService) {
+export function createApiHandler(service: RestaurantService, extensions?: HackathonExtensionsService) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     try {
       const method = request.method ?? "GET";
@@ -14,6 +15,19 @@ export function createApiHandler(service: RestaurantService) {
 
       if (method === "GET" && url.pathname === "/health") return json(response, 200, { status: "ok" });
       if (method === "GET" && url.pathname === "/api/menu") return json(response, 200, { items: await service.listMenu() });
+      if (method === "POST" && url.pathname === "/api/menu/assistant") {
+        requireExtensions(extensions);
+        const body = await readJson<{ question: string }>(request);
+        return json(response, 200, await extensions.askMenuAssistant(body.question));
+      }
+      if (method === "GET" && url.pathname === "/api/wdk/wallets") {
+        requireExtensions(extensions);
+        return json(response, 200, await extensions.getWallets());
+      }
+      if (method === "GET" && url.pathname === "/api/wdk/financials") {
+        requireExtensions(extensions);
+        return json(response, 200, await extensions.getFinancialSummary());
+      }
       if (method === "POST" && url.pathname === "/api/tables") {
         const body = await readJson<{ tableNumber: number }>(request);
         return json(response, 201, await service.openTable(body.tableNumber));
@@ -28,9 +42,14 @@ export function createApiHandler(service: RestaurantService) {
           const body = await readJson<{ name: string }>(request);
           return json(response, 201, await service.joinTable(sessionId, body.name));
         }
-        if (method === "POST" && parts[3] === "orders") {
+        if (method === "POST" && parts[3] === "orders" && parts.length === 4) {
           const body = await readJson<Parameters<RestaurantService["placeOrder"]>[1]>(request);
           return json(response, 201, await service.placeOrder(sessionId, body));
+        }
+        if (method === "POST" && parts[3] === "orders" && parts[4] && parts[5] === "items" && parts[6] && parts[7] === "remove") {
+          requireExtensions(extensions);
+          const body = await readJson<{ dinerId: string }>(request);
+          return json(response, 200, await extensions.removeOrderItem(sessionId, parts[4], body.dinerId, parts[6]));
         }
         if (method === "POST" && parts[3] === "bill" && parts[4] === "request") {
           const body = await readJson<{ confirmed: boolean }>(request);
@@ -49,6 +68,16 @@ export function createApiHandler(service: RestaurantService) {
           const body = await readJson<Parameters<RestaurantService["evaluatePayment"]>[1]>(request);
           return json(response, 200, await service.evaluatePayment(sessionId, body));
         }
+        if (method === "POST" && parts[3] === "payments" && parts[4] === "wdk" && parts[5] === "preview") {
+          requireExtensions(extensions);
+          const body = await readJson<Parameters<HackathonExtensionsService["previewPayment"]>[1]>(request);
+          return json(response, 200, await extensions.previewPayment(sessionId, body));
+        }
+        if (method === "POST" && parts[3] === "payments" && parts[4] === "wdk" && parts[5] === "execute") {
+          requireExtensions(extensions);
+          const body = await readJson<Parameters<HackathonExtensionsService["executePayment"]>[1]>(request);
+          return json(response, 201, await extensions.executePayment(sessionId, body));
+        }
       }
       if (method === "GET" && url.pathname === "/api/kitchen/orders") {
         const rawStatus = url.searchParams.get("status");
@@ -66,9 +95,13 @@ export function createApiHandler(service: RestaurantService) {
       if (error instanceof DomainError) return json(response, errorStatus(error), { error: { code: error.code, message: error.message } });
       if (error instanceof SyntaxError) return json(response, 400, { error: { code: "VALIDATION_ERROR", message: "El cuerpo JSON no es válido." } });
       console.error(error);
-      return json(response, 500, { error: { code: "INTERNAL_ERROR", message: "Ocurrió un error inesperado." } });
+      return json(response, 500, { error: { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : "Ocurrió un error inesperado." } });
     }
   };
+}
+
+function requireExtensions(extensions: HackathonExtensionsService | undefined): asserts extensions is HackathonExtensionsService {
+  if (!extensions) throw new DomainError("INVALID_STATE", "Las extensiones del hackathon no están configuradas.");
 }
 
 async function readJson<T>(request: IncomingMessage): Promise<T> {
