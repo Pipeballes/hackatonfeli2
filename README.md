@@ -24,7 +24,7 @@ El checkout del hackathon usa **WDK CLI** como backend de wallet para un flujo d
 - Preview de un solo uso y rechazo si cambia el monto.
 - Registro de balance antes/después y hash de transacción si el CLI lo devuelve.
 - Resumen de gastos del cliente, ingresos del negocio y propinas.
-- Asistente local del menú: `Plato del día`, `Sugerencias`, `Más recomendado`.
+- Asistente del menú con QVAC local opcional y fallback determinista: `Plato del día`, `Sugerencias`, `Más recomendado`.
 
 ### VERIFICADO previamente
 
@@ -36,9 +36,10 @@ Antes de esta rama se verificaron compilación del backend y 8 tests del motor, 
 - `npm run typecheck`;
 - `npm test` con los tests nuevos;
 - `npm run build`;
-- broadcast real de **testnet** con wallets dedicadas financiadas en Sepolia.
+- broadcast real de **testnet** con wallets dedicadas financiadas en Sepolia;
+- QVAC local real, si se usa en la demo.
 
-No se debe presentar el pago on-chain como verificado hasta completar esa última prueba.
+No se debe presentar el pago on-chain como verificado hasta completar esa prueba.
 
 ### PROPUESTO / FUTURO
 
@@ -46,8 +47,7 @@ No se debe presentar el pago on-chain como verificado hasta completar esa últim
 - generación física/descargable de QR;
 - autenticación del personal;
 - costos de ingredientes/personal para calcular ganancia neta;
-- facturación e integraciones POS;
-- un LLM local real para el asistente. El MVP actual usa recomendaciones deterministas y no se hace pasar por IA generativa.
+- facturación e integraciones POS.
 
 ## Requisitos
 
@@ -57,10 +57,13 @@ No se debe presentar el pago on-chain como verificado hasta completar esa últim
 
 ## Instalación
 
+Con npm 11, `package.json` contiene una aprobación fijada en `allowScripts` para `@tetherto/wdk-cli@1.0.0-beta.2`. Por eso, dentro del proyecto se usa `npm install` normal; no se pasa `--allow-scripts` en la línea de comandos.
+
 ```bash
-npm install --allow-scripts=@tetherto/wdk-cli
+npm install
 npm run typecheck
 npm test
+npm run build
 npm run dev
 ```
 
@@ -76,7 +79,7 @@ Los pedidos se guardan en memoria y se reinician al detener el servidor.
 
 ## WDK CLI — setup seguro
 
-Instalación global recomendada por WDK:
+Si querés disponer del comando `wdk` globalmente, npm sí permite `--allow-scripts` en una instalación global:
 
 ```bash
 npm install -g --allow-scripts=@tetherto/wdk-cli @tetherto/wdk-cli@1.0.0-beta.2
@@ -119,13 +122,13 @@ La wallet del cliente debe tener USDt de prueba y gas de Sepolia suficiente. No 
 
 1. El comensal escanea el QR de Mesa 12.
 2. Ingresa su nombre.
-3. Elige un plato, puede agregar `sin cebolla`, `salsa aparte`, etc.
+3. Elige un plato y puede agregar aclaraciones.
 4. Confirma el pedido.
 5. Si se equivocó, puede quitar un producto mientras el pedido esté `Recibido`.
 6. Cocina ve la comanda y avanza sus estados.
 7. Cuando todo está `Entregado`, el comensal solicita la cuenta.
 8. Elige `Pago lo mío` o `Pago toda la mesa` y propina.
-9. Mesa Abierta lee la wallet local de cliente y la wallet local del negocio.
+9. Mesa Abierta lee la wallet local del cliente y la wallet local del negocio.
 10. WDK SDK evalúa destinatario y monto.
 11. WDK CLI ejecuta `wdk send --dry-run --json`.
 12. La interfaz muestra origen, destino, monto y preview.
@@ -137,26 +140,15 @@ Si WDK falla, la wallet está bloqueada, falta saldo, el preview venció o cambi
 
 ## Control financiero del MVP
 
-El panel interno muestra:
+El panel interno muestra gastos pagados por clientes, ingresos cobrados por el negocio, propinas, USDt de testnet recibido y saldo reportado por WDK CLI para la wallet del negocio.
 
-- gastos pagados por clientes;
-- ingresos cobrados por el negocio;
-- propinas;
-- USDt de testnet recibido;
-- saldo reportado por WDK CLI para la wallet del negocio.
-
-**No muestra “ganancia neta”**, porque todavía no registramos costo de mercadería, personal ni comisiones. Mostrar ingresos como ganancia sería incorrecto.
+**No muestra “ganancia neta”**, porque todavía no registramos costo de mercadería, personal ni comisiones.
 
 ## Asistente del menú
 
-El botón `Asistente del menú` responde a:
+El asistente responde a `Plato del día`, `Sugerencias`, `Más recomendado` y consultas simples sobre bebida o postre.
 
-- `Plato del día`;
-- `Sugerencias`;
-- `Más recomendado`;
-- consultas simples sobre bebida o postre.
-
-En este MVP usa reglas locales y datos de pedidos de la demo. No llama a una IA cloud y no se presenta como un LLM. Esto mantiene el alcance enfocado en WDK Track 1.
+Puede usar **QVAC local** mediante su endpoint OpenAI-compatible en loopback. La respuesta queda anclada a productos reales del menú. Si QVAC no está disponible o devuelve una respuesta inválida, se usa un recomendador determinista local de respaldo. No se envían datos del comensal a una IA cloud.
 
 ## Seguridad WDK
 
@@ -164,7 +156,6 @@ En este MVP usa reglas locales y datos de pedidos de la demo. No llama a una IA 
 - Wallets dedicadas, nunca personales.
 - Seed/passphrase nunca llegan al frontend ni al backend.
 - El backend sólo usa nombres de wallets y direcciones públicas mediante WDK CLI.
-- El CLI maneja material criptográfico en su daemon local.
 - El camino transmisible falla cerrado si WDK no autoriza.
 - Un fallback simulado nunca autoriza broadcast.
 - Dry-run obligatorio antes de send.
@@ -186,7 +177,7 @@ Detalles técnicos: [`docs/WDK.md`](docs/WDK.md).
 
 - `src/domain`: modelo y reglas centrales.
 - `src/application`: casos de uso y orquestación.
-- `src/infrastructure`: memoria, políticas WDK y WDK CLI.
+- `src/infrastructure`: memoria, políticas WDK, WDK CLI y QVAC local.
 - `src/api`: HTTP.
 - `web`: React/Vite para comensal y cocina/caja.
 - `tests`: flujos del motor y controles de seguridad.
