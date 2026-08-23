@@ -23,6 +23,8 @@ WDK no está agregado como una capa paralela: el checkout de testnet depende del
 - `@tetherto/wdk-wallet-evm` — wallet EVM usada por la simulación de política.
 - `@tetherto/wdk-cli@1.0.0-beta.2` — backend de wallet y transferencia para el Track 1.
 
+`package.json` aprueba de forma explícita y fijada el script de instalación de `@tetherto/wdk-cli@1.0.0-beta.2` mediante `allowScripts`. Con npm 11, no se debe pasar `--allow-scripts` a un `npm install` dentro del proyecto.
+
 ## Flujo de pago
 
 1. Cocina entrega todas las comandas.
@@ -44,10 +46,15 @@ El preview vence y sólo puede utilizarse una vez. Si cambia el total después d
 
 La aplicación **no crea wallets automáticamente en el servidor**, porque eso implicaría manejar material secreto sin supervisión humana.
 
-Primero instalá dependencias y WDK CLI:
+Primero instalá dependencias del proyecto:
 
 ```bash
-npm install --allow-scripts=@tetherto/wdk-cli
+npm install
+```
+
+Si además querés disponer del comando `wdk` globalmente:
+
+```bash
 npm install -g --allow-scripts=@tetherto/wdk-cli @tetherto/wdk-cli@1.0.0-beta.2
 ```
 
