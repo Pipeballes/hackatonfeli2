@@ -1,63 +1,124 @@
-# Integración WDK
+# Integración WDK — Mesa Abierta
+
+## Track elegido
+
+**WDK Track 1 — Build with the WDK CLI.**
+
+WDK no está agregado como una capa paralela: el checkout de testnet depende del CLI para previsualizar y transmitir el pago del comensal hacia la wallet del negocio.
 
 ## Estado
 
-- **IMPLEMENTADO:** adaptador real de políticas de WDK.
-- **VERIFICADO:** resultados `ALLOW` y `DENY` mediante pruebas automáticas.
-- **NO IMPLEMENTADO:** firma, cotización de comisión, transmisión o confirmación on-chain.
+- **IMPLEMENTADO:** políticas WDK SDK `ALLOW/DENY`.
+- **IMPLEMENTADO:** gateway de WDK CLI con dos wallets dedicadas (`mesa-cliente-demo` y `mesa-negocio-demo`).
+- **IMPLEMENTADO:** `wdk send --dry-run` obligatorio antes del envío.
+- **IMPLEMENTADO:** confirmación humana separada antes del `wdk send` transmisible.
+- **IMPLEMENTADO:** protección contra doble ejecución y contra cambios de monto después del preview.
+- **IMPLEMENTADO:** registro de balances antes/después, hash si WDK CLI lo devuelve, gastos del cliente, ingresos del negocio y propinas.
+- **VERIFICADO previamente:** políticas WDK SDK `ALLOW` y `DENY` mediante tests.
+- **PENDIENTE DE VERIFICAR en una wallet financiada:** broadcast real en Sepolia y confirmación on-chain.
 
-## Qué hace
+## Paquetes WDK
 
-`WdkPolicySimulationGateway` convierte el total en pesos a una cantidad ficticia de USDt de testnet mediante una cotización fija de demostración. Después:
+- `@tetherto/wdk` — política de transacción.
+- `@tetherto/wdk-wallet-evm` — wallet EVM usada por la simulación de política.
+- `@tetherto/wdk-cli@1.0.0-beta.2` — backend de wallet y transferencia para el Track 1.
 
-1. Genera una seed descartable exclusivamente en memoria.
-2. Registra el wallet EVM de WDK para Ethereum Sepolia.
-3. Registra una política local con reglas ALLOW/DENY.
-4. Obtiene una cuenta gobernada.
-5. Ejecuta `account.simulate.transfer(...)`.
-6. Devuelve decisión, regla y motivo.
-7. Ejecuta `wdk.dispose()` para limpiar el material derivado.
+## Flujo de pago
 
-No se configura proveedor RPC porque la simulación de política no llama al método de transferencia subyacente.
+1. Cocina entrega todas las comandas.
+2. El comensal solicita la cuenta.
+3. Mesa Abierta calcula pago individual o de mesa + propina.
+4. Se lee la dirección pública de `mesa-negocio-demo` mediante WDK CLI.
+5. WDK SDK evalúa la intención para ese destinatario y monto.
+6. Si WDK no devuelve `ALLOW`, no se continúa.
+7. La app llama a `wdk send ... --dry-run --json` desde `mesa-cliente-demo` hacia la dirección del negocio.
+8. Se muestra al usuario el monto, origen, destino y el preview.
+9. El usuario confirma explícitamente.
+10. Se ejecuta `wdk send ... --json` sin `--dry-run`.
+11. Se registran recibo y balances antes/después.
+12. El panel interno agrega el pago a ingresos y propinas.
 
-## Reglas
+El preview vence y sólo puede utilizarse una vez. Si cambia el total después del preview, se rechaza el envío y hay que generar uno nuevo.
 
-- El token debe coincidir con el contrato USDt de prueba de Sepolia documentado por WDK.
-- El destinatario debe coincidir con la dirección pública configurada para el restaurante.
-- El monto debe ser positivo.
-- El monto no puede superar el límite de la demo.
-- WDK niega por defecto una operación gobernada que no tenga una regla aplicable.
+## Crear las wallets de prueba
 
-## Datos de demostración
+La aplicación **no crea wallets automáticamente en el servidor**, porque eso implicaría manejar material secreto sin supervisión humana.
 
-- Red: Ethereum Sepolia (`chainId: 11155111`).
-- Activo: USDt de prueba.
-- Contrato: `0xd077a400968890eacc75cdc901f0356c943e4fdb`.
-- Cotización predeterminada: 1 USDt de prueba = 1.000 ARS ficticios.
-- Límite predeterminado: 25 USDt de prueba.
+Primero instalá dependencias y WDK CLI:
 
-La cotización es deliberadamente ficticia y no debe mostrarse como precio de mercado.
+```bash
+npm install --allow-scripts=@tetherto/wdk-cli
+npm install -g --allow-scripts=@tetherto/wdk-cli @tetherto/wdk-cli@1.0.0-beta.2
+```
+
+Después podés usar el setup interactivo:
+
+```bash
+npm run wallets:setup
+```
+
+O hacerlo manualmente:
+
+```bash
+wdk wallet create --name mesa-cliente-demo --words 12
+wdk wallet create --name mesa-negocio-demo --words 12
+```
+
+Guardá las seed phrases **offline**. No deben aparecer en `.env`, GitHub, logs, capturas, chats ni videos.
+
+Antes de la demo, desbloqueá ambas con TTL corto:
+
+```bash
+wdk wallet unlock --name mesa-cliente-demo --ttl 5
+wdk wallet unlock --name mesa-negocio-demo --ttl 5
+```
+
+Verificá direcciones y saldo del cliente:
+
+```bash
+wdk get address --network sepolia --wallet mesa-cliente-demo
+wdk get address --network sepolia --wallet mesa-negocio-demo
+wdk get balance --network sepolia --token usdt --wallet mesa-cliente-demo
+```
+
+La wallet cliente necesita USDt de prueba en Sepolia y gas de testnet suficiente para la transferencia. No uses fondos ni wallets personales.
+
+## Red y token
+
+- Red: Ethereum Sepolia (`sepolia`, chain ID 11155111).
+- Activo: USDt de prueba / ticker WDK CLI `usdt`.
+- Contrato de USDt de prueba documentado por WDK: `0xd077a400968890eacc75cdc901f0356c943e4fdb`.
+- Decimales: 6.
+- Conversión de la demo: `DEMO_ARS_PER_USDT`, por defecto 1 USDt = 1.000 ARS ficticios. No es cotización de mercado.
 
 ## Seguridad
 
-- No se usa mainnet.
+- El checkout transmisible sólo usa Sepolia.
 - No se usa una wallet personal.
-- No se guarda ni registra ninguna seed phrase.
-- No se solicita una clave privada al usuario.
-- La respuesta siempre contiene `broadcast: false`.
-- El pago final del motor continúa marcado como `SIMULATED_APPROVED`.
-- Si WDK falla, se usa una política determinista de respaldo y se informa `SIMULATED_FALLBACK`.
+- La app nunca recibe seed phrase ni passphrase.
+- El CLI guarda las wallets cifradas localmente y el daemon mantiene claves sólo mientras están desbloqueadas.
+- No se usa `WDK_PASSPHRASE` desde la aplicación.
+- Si la política WDK falla en el camino transmisible, el gateway **falla cerrado** (`DENY`).
+- Un fallback simulado nunca puede autorizar un broadcast WDK CLI.
+- Toda transmisión requiere primero un dry-run y después una confirmación humana separada.
+- La app no presenta ingresos como ganancia neta: el MVP todavía no registra costos de ingredientes, personal ni comisiones.
 
-## Pruebas
+## Archivos principales
 
-`tests/wdk-policy-gateway.test.ts` verifica:
-
-- Un pago por debajo del límite devuelve `WDK / ALLOW`.
-- Un pago superior al límite devuelve `WDK / DENY`.
-- Ningún caso transmite una operación.
+- `src/infrastructure/wdk-cli-checkout-gateway.ts` — comandos WDK CLI y controles anti-replay.
+- `src/infrastructure/wdk-policy-gateway.ts` — políticas ALLOW/DENY y fail-closed.
+- `src/application/hackathon-extensions-service.ts` — orquestación de checkout, recibos y resumen financiero.
+- `src/application/checkout-wallet.ts` — contratos del gateway.
+- `web/src/App.tsx` — preview, confirmación y visualización de wallets.
+- `scripts/setup-wdk-wallets.mjs` — creación interactiva de wallets de testnet.
+- `tests/wdk-cli-checkout-gateway.test.ts` — dry-run, broadcast único y monto inmutable.
+- `tests/hackathon-extensions-service.test.ts` — flujo cliente-negocio y contabilidad del MVP.
 
 ## Fuentes oficiales
 
+- https://docs.wdk.tether.io/cli/
+- https://docs.wdk.tether.io/cli/guides/get-started/
+- https://docs.wdk.tether.io/cli/api-reference/
+- https://docs.wdk.tether.io/cli/reference/security-model/
 - https://docs.wdk.tether.io/sdk/core-module/guides/transaction-policies/
-- https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm/
 - https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm-erc-4337/configuration/
