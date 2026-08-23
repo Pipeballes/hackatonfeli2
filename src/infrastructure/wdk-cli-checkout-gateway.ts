@@ -8,28 +8,26 @@ export interface WdkCliCheckoutConfig {
   arsPerUsdt: number;
   previewTtlMs?: number;
   executable?: string;
+  tokenTicker?: string;
 }
 
-export interface CliRunResult {
-  stdout: string;
-  stderr: string;
-}
-
+export interface CliRunResult { stdout: string; stderr: string; }
 export type CliRunner = (args: string[]) => Promise<CliRunResult>;
-
 type StoredPreview = CheckoutPreview & { totalInCents: number; used: boolean };
-
 const walletNamePattern = /^[A-Za-z0-9_-]{1,48}$/;
 
 export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
   private readonly previews = new Map<string, StoredPreview>();
   private readonly previewTtlMs: number;
   private readonly runner: CliRunner;
+  private readonly tokenTicker: string;
 
   constructor(private readonly config: WdkCliCheckoutConfig, runner?: CliRunner) {
     if (!walletNamePattern.test(config.clientWallet) || !walletNamePattern.test(config.businessWallet)) throw new Error("Los nombres de wallet WDK no son válidos.");
     if (!Number.isFinite(config.arsPerUsdt) || config.arsPerUsdt <= 0) throw new Error("DEMO_ARS_PER_USDT debe ser positivo.");
     this.previewTtlMs = config.previewTtlMs ?? 120_000;
+    this.tokenTicker = (config.tokenTicker ?? process.env.WDK_CLI_TOKEN ?? "usdt").toLowerCase();
+    if (!/^[a-z0-9_-]{1,24}$/.test(this.tokenTicker)) throw new Error("El ticker WDK CLI no es válido.");
     this.runner = runner ?? createWdkCliRunner(config.executable ?? process.env.WDK_CLI_BIN ?? "wdk");
   }
 
@@ -52,25 +50,17 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
     const amount = this.toUsdt(totalInCents);
     const cliResult = await this.runJson([
       "send", "--network", "sepolia", "--to", wallets.business.address,
-      "--amount", amount, "--token", "USDT", "--wallet", wallets.client.walletName,
+      "--amount", amount, "--token", this.tokenTicker, "--wallet", wallets.client.walletName,
       "--dry-run", "--json",
     ]);
 
     const preview: StoredPreview = {
-      previewId: randomUUID(),
-      expiresAt: new Date(Date.now() + this.previewTtlMs).toISOString(),
-      network: "sepolia",
-      asset: "USDT",
-      fromWallet: wallets.client.walletName,
-      fromAddress: wallets.client.address,
-      toWallet: wallets.business.walletName,
-      toAddress: wallets.business.address,
-      amount,
-      balanceBefore: { client: wallets.client.balance, business: wallets.business.balance },
-      dryRun: true,
-      cliResult,
-      totalInCents,
-      used: false,
+      previewId: randomUUID(), expiresAt: new Date(Date.now() + this.previewTtlMs).toISOString(),
+      network: "sepolia", asset: "USDT",
+      fromWallet: wallets.client.walletName, fromAddress: wallets.client.address,
+      toWallet: wallets.business.walletName, toAddress: wallets.business.address,
+      amount, balanceBefore: { client: wallets.client.balance, business: wallets.business.balance },
+      dryRun: true, cliResult, totalInCents, used: false,
     };
     this.previews.set(preview.previewId, preview);
     return this.publicPreview(preview);
@@ -81,33 +71,24 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
     const preview = this.previews.get(previewId);
     if (!preview) throw new Error("El preview WDK no existe o el servidor se reinició. Generá uno nuevo.");
     if (preview.used) throw new Error("Este preview WDK ya fue utilizado.");
-    if (Date.parse(preview.expiresAt) < Date.now()) {
-      this.previews.delete(previewId);
-      throw new Error("El preview WDK venció. Generá uno nuevo antes de confirmar.");
-    }
+    if (Date.parse(preview.expiresAt) < Date.now()) { this.previews.delete(previewId); throw new Error("El preview WDK venció. Generá uno nuevo antes de confirmar."); }
     if (preview.totalInCents !== totalInCents) throw new Error("El monto cambió después del preview. Generá uno nuevo.");
 
+    // Mark before broadcast so a double click/retry cannot produce two sends.
     preview.used = true;
     const cliResult = await this.runJson([
       "send", "--network", "sepolia", "--to", preview.toAddress,
-      "--amount", preview.amount, "--token", "USDT", "--wallet", preview.fromWallet,
-      "--json",
+      "--amount", preview.amount, "--token", this.tokenTicker, "--wallet", preview.fromWallet, "--json",
     ]);
     const walletsAfter = await this.getWallets();
     return {
-      previewId,
-      network: "sepolia",
-      asset: "USDT",
-      fromWallet: preview.fromWallet,
-      fromAddress: preview.fromAddress,
-      toWallet: preview.toWallet,
-      toAddress: preview.toAddress,
-      amount: preview.amount,
-      transactionHash: findString(cliResult, ["transactionHash", "txHash", "hash", "id"]),
+      previewId, network: "sepolia", asset: "USDT",
+      fromWallet: preview.fromWallet, fromAddress: preview.fromAddress,
+      toWallet: preview.toWallet, toAddress: preview.toAddress, amount: preview.amount,
+      transactionHash: findByKeys(cliResult, ["transactionHash", "txHash", "hash", "id"]),
       balanceBefore: preview.balanceBefore,
       balanceAfter: { client: walletsAfter.client.balance, business: walletsAfter.business.balance },
-      broadcast: true,
-      cliResult,
+      broadcast: true, cliResult,
     };
   }
 
@@ -116,15 +97,12 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
     try {
       const [addressResult, balanceResult] = await Promise.all([
         this.runJson(["get", "address", "--network", "sepolia", "--wallet", walletName, "--json"]),
-        this.runJson(["get", "balance", "--network", "sepolia", "--token", "USDT", "--wallet", walletName, "--json"]),
+        this.runJson(["get", "balance", "--network", "sepolia", "--token", this.tokenTicker, "--wallet", walletName, "--json"]),
       ]);
       return {
-        role,
-        walletName,
-        network: "sepolia",
-        asset: "USDT",
-        address: findString(addressResult, ["address"]) ?? "",
-        balance: findString(balanceResult, ["amount", "balance", "tokenBalance"]) ?? null,
+        role, walletName, network: "sepolia", asset: "USDT",
+        address: findByKeys(addressResult, ["address"]) ?? "",
+        balance: findByKeys(balanceResult, ["amount", "balance", "tokenBalance"]) ?? null,
         unlocked,
       };
     } catch (error) {
@@ -139,8 +117,8 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
     if (!text) throw new Error(`WDK CLI no devolvió JSON. ${result.stderr.trim()}`.trim());
     try {
       const parsed = JSON.parse(text) as unknown;
-      const errorCode = findString(parsed, ["error", "code"]);
-      if (errorCode && /error|invalid|locked|insufficient/i.test(errorCode)) throw new Error(findString(parsed, ["message"]) ?? `WDK CLI: ${errorCode}`);
+      const errorCode = findByKeys(parsed, ["code"]);
+      if (errorCode && /error|invalid|locked|insufficient/i.test(errorCode)) throw new Error(findByKeys(parsed, ["message"]) ?? `WDK CLI: ${errorCode}`);
       return parsed;
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error(`No se pudo interpretar la respuesta JSON de WDK CLI: ${text.slice(0, 240)}`);
@@ -153,8 +131,7 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
   }
 
   private toUsdt(totalInCents: number) {
-    const ars = totalInCents / 100;
-    const amount = ars / this.config.arsPerUsdt;
+    const amount = (totalInCents / 100) / this.config.arsPerUsdt;
     if (!Number.isFinite(amount) || amount <= 0) throw new Error("No se pudo convertir el total a USDt de prueba.");
     return amount.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
   }
@@ -167,19 +144,17 @@ export class WdkCliCheckoutGateway implements CheckoutWalletGateway {
 
 export function createWdkCliRunner(executable: string): CliRunner {
   return (args) => new Promise((resolve, reject) => {
-    for (const arg of args) {
-      if (/\r|\n/.test(arg)) return reject(new Error("Argumento WDK CLI inválido."));
-    }
+    for (const arg of args) if (/\r|\n/.test(arg)) return reject(new Error("Argumento WDK CLI inválido."));
     const child = spawn(executable, args, { windowsHide: true, shell: process.platform === "win32" });
-    let stdout = "";
-    let stderr = "";
-    const max = 1_000_000;
-    const timer = setTimeout(() => { child.kill(); reject(new Error("WDK CLI excedió el tiempo máximo de respuesta.")); }, 30_000);
+    let stdout = ""; let stderr = ""; const max = 1_000_000;
+    let settled = false;
+    const finishReject = (error: Error) => { if (settled) return; settled = true; clearTimeout(timer); reject(error); };
+    const timer = setTimeout(() => { child.kill(); finishReject(new Error("WDK CLI excedió el tiempo máximo de respuesta.")); }, 30_000);
     child.stdout.on("data", (chunk) => { stdout += String(chunk); if (stdout.length > max) child.kill(); });
     child.stderr.on("data", (chunk) => { stderr += String(chunk); if (stderr.length > max) child.kill(); });
-    child.on("error", (error) => { clearTimeout(timer); reject(new Error(`No se pudo ejecutar WDK CLI: ${error.message}`)); });
+    child.on("error", (error) => finishReject(new Error(`No se pudo ejecutar WDK CLI: ${error.message}`)));
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (settled) return; settled = true; clearTimeout(timer);
       if (stdout.length > max || stderr.length > max) return reject(new Error("La salida de WDK CLI superó el límite permitido."));
       if (code !== 0) return reject(new Error(extractCliError(stdout, stderr) ?? `WDK CLI terminó con código ${code}.`));
       resolve({ stdout, stderr });
@@ -189,53 +164,38 @@ export function createWdkCliRunner(executable: string): CliRunner {
 
 function extractCliError(stdout: string, stderr: string) {
   for (const text of [stdout, stderr]) {
-    const trimmed = text.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      return findString(parsed, ["message", "error", "code"]);
-    } catch { /* human-readable CLI error */ }
+    const trimmed = text.trim(); if (!trimmed) continue;
+    try { const parsed = JSON.parse(trimmed) as unknown; return findByKeys(parsed, ["message", "error", "code"]); } catch { /* readable CLI error */ }
   }
   return stderr.trim() || stdout.trim() || null;
 }
 
-function findString(value: unknown, keys: string[]): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return String(value);
+function findByKeys(value: unknown, keys: string[]): string | null {
+  if (!value || typeof value !== "object") return null;
   if (Array.isArray(value)) {
-    for (const item of value) { const found = findString(item, keys); if (found) return found; }
+    for (const item of value) { const found = findByKeys(item, keys); if (found) return found; }
     return null;
   }
-  if (typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   for (const key of keys) {
     const direct = record[key];
     if (typeof direct === "string" || typeof direct === "number" || typeof direct === "bigint") return String(direct);
-    if (direct && typeof direct === "object") {
-      const nested = findString(direct, keys);
-      if (nested) return nested;
-    }
   }
-  for (const nested of Object.values(record)) {
-    const found = findString(nested, keys);
-    if (found) return found;
-  }
+  for (const nested of Object.values(record)) { const found = findByKeys(nested, keys); if (found) return found; }
   return null;
 }
 
 function findWalletUnlocked(value: unknown, walletName: string): boolean | null {
   if (!value || typeof value !== "object") return null;
-  const records = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
-  for (const item of records) {
-    if (item && typeof item === "object") {
-      const record = item as Record<string, unknown>;
-      if (record.name === walletName || record.walletName === walletName) {
-        if (typeof record.unlocked === "boolean") return record.unlocked;
-        if (typeof record.locked === "boolean") return !record.locked;
-      }
-      const nested = findWalletUnlocked(item, walletName);
-      if (nested !== null) return nested;
-    }
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = findWalletUnlocked(item, walletName); if (found !== null) return found; }
+    return null;
   }
+  const record = value as Record<string, unknown>;
+  if (record.name === walletName || record.walletName === walletName) {
+    if (typeof record.unlocked === "boolean") return record.unlocked;
+    if (typeof record.locked === "boolean") return !record.locked;
+  }
+  for (const nested of Object.values(record)) { const found = findWalletUnlocked(nested, walletName); if (found !== null) return found; }
   return null;
 }
