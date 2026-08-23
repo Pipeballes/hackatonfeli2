@@ -27,16 +27,10 @@ const checkoutWallet = new WdkCliCheckoutGateway({
   clientWallet: process.env.WDK_CLIENT_WALLET ?? "mesa-cliente-demo",
   businessWallet: process.env.WDK_BUSINESS_WALLET ?? "mesa-negocio-demo",
   arsPerUsdt,
-  executable: process.env.WDK_CLI_BIN,
+  ...(process.env.WDK_CLI_BIN ? { executable: process.env.WDK_CLI_BIN } : {}),
+  ...(process.env.WDK_CLI_TOKEN ? { tokenTicker: process.env.WDK_CLI_TOKEN } : {}),
 });
-const extensions = new HackathonExtensionsService(
-  sessions,
-  menu,
-  systemClock,
-  uuidGenerator,
-  paymentGateway,
-  checkoutWallet,
-);
+const extensions = new HackathonExtensionsService(sessions, menu, systemClock, uuidGenerator, paymentGateway, checkoutWallet);
 
 const port = Number(process.env.PORT ?? 3000);
 const apiHandler = createApiHandler(service, extensions);
