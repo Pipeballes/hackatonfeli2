@@ -6,6 +6,7 @@ export interface PaymentIntent {
   subtotalInCents: number;
   tipInCents: number;
   totalInCents: number;
+  recipientAddress?: string;
 }
 
 export interface PaymentEvaluation {

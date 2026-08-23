@@ -1,113 +1,185 @@
 # Mesa Abierta
 
-> Nombre provisorio para el proyecto del Aleph Hackathon 2026.
+> Aleph Hackathon 2026 · WDK Track 1
 
-Mesa Abierta propone una experiencia de pedidos por QR para restaurantes. Cada integrante de una mesa puede consultar el menú, realizar pedidos desde su celular, seguir agregando productos durante la comida y, al finalizar, elegir entre pagar en conjunto o por separado.
+Mesa Abierta es una experiencia de restaurante por QR: cada comensal entra desde su mesa, se identifica en ese teléfono, personaliza platos, envía pedidos, corrige un producto antes de que cocina empiece a prepararlo, sigue el estado y paga lo suyo o toda la mesa.
 
-## Estado actual
+El checkout del hackathon usa **WDK CLI** como backend de wallet para un flujo de testnet **cliente → negocio**.
 
-- **IMPLEMENTADO:** motor TypeScript, API HTTP, interfaz responsive de comensal y cocina, y evaluación de pagos mediante políticas reales de WDK.
-- **VERIFICADO:** compilación del backend y la web, más 8 pruebas automáticas, incluyendo WDK `ALLOW` y `DENY` sin transmisión.
-- **PROPUESTO:** base de datos persistente, generación de QR y despliegue público.
-- **FUTURO:** pagos reales, facturación e integraciones con sistemas del restaurante.
+## Estado
 
-## Ejecutar el motor
+### IMPLEMENTADO
 
-Requiere Node.js 22 o superior.
+- QR lógico por URL `/mesa/:numero`.
+- Identificación del comensal por dispositivo/sesión.
+- Menú, carrito y aclaraciones por producto.
+- Pedidos iniciales y adicionales.
+- Vista `Mi pedido` con estados en tiempo real.
+- Corrección: quitar un producto mientras la comanda siga `RECEIVED`.
+- Cocina: `RECEIVED → PREPARING → READY → DELIVERED`.
+- Cuenta individual o de mesa y propina.
+- Políticas WDK SDK `ALLOW/DENY`.
+- WDK CLI Track 1: wallets dedicadas de cliente y negocio.
+- Pago WDK CLI: `dry-run → confirmación humana → send` en Sepolia.
+- Preview de un solo uso y rechazo si cambia el monto.
+- Registro de balance antes/después y hash de transacción si el CLI lo devuelve.
+- Resumen de gastos del cliente, ingresos del negocio y propinas.
+- Asistente del menú con QVAC local opcional y fallback determinista: `Plato del día`, `Sugerencias`, `Más recomendado`.
+
+### VERIFICADO previamente
+
+Antes de esta rama se verificaron compilación del backend y 8 tests del motor, incluyendo políticas WDK `ALLOW` y `DENY` sin transmisión.
+
+### PENDIENTE DE VERIFICAR en esta rama
+
+- instalación limpia con `@tetherto/wdk-cli@1.0.0-beta.2`;
+- `npm run typecheck`;
+- `npm test` con los tests nuevos;
+- `npm run build`;
+- broadcast real de **testnet** con wallets dedicadas financiadas en Sepolia;
+- QVAC local real, si se usa en la demo.
+
+No se debe presentar el pago on-chain como verificado hasta completar esa prueba.
+
+### PROPUESTO / FUTURO
+
+- persistencia en base de datos;
+- generación física/descargable de QR;
+- autenticación del personal;
+- costos de ingredientes/personal para calcular ganancia neta;
+- facturación e integraciones POS.
+
+## Requisitos
+
+- Node.js **22.18.0 o superior**.
+- WDK CLI **`@tetherto/wdk-cli@1.0.0-beta.2`**.
+- Para la prueba on-chain: dos wallets dedicadas de Sepolia y fondos exclusivamente de testnet.
+
+## Instalación
+
+Con npm 11, `package.json` contiene una aprobación fijada en `allowScripts` para `@tetherto/wdk-cli@1.0.0-beta.2`. Por eso, dentro del proyecto se usa `npm install` normal; no se pasa `--allow-scripts` en la línea de comandos.
 
 ```bash
 npm install
+npm run typecheck
 npm test
+npm run build
 npm run dev
 ```
 
-La interfaz queda disponible en:
+Web:
 
 - Comensal: `http://localhost:5173/mesa/12`
-- Cocina: `http://localhost:5173/cocina`
+- Mi pedido: `http://localhost:5173/mesa/12/pedido`
+- Cocina / caja: `http://localhost:5173/cocina`
+- API: `http://localhost:3000`
+- Health: `GET /health`
 
-La API utiliza `http://localhost:3000`. La ruta `GET /health` permite verificarla.
+Los pedidos se guardan en memoria y se reinician al detener el servidor.
 
-> La persistencia actual es simulada en memoria. Los datos se eliminan al reiniciar el servidor. No hay pagos reales ni conexión con una base de datos externa.
+## WDK CLI — setup seguro
 
-La organización técnica y las rutas disponibles están documentadas en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). La integración WDK está detallada en [`docs/WDK.md`](docs/WDK.md).
+Si querés disponer del comando `wdk` globalmente, npm sí permite `--allow-scripts` en una instalación global:
 
-## WDK en el MVP
+```bash
+npm install -g --allow-scripts=@tetherto/wdk-cli @tetherto/wdk-cli@1.0.0-beta.2
+wdk --version
+```
 
-El pago sigue siendo simulado. Antes de aprobarlo, el backend crea una intención de transferencia de USDt de prueba y llama a `account.simulate.transfer(...)`. WDK devuelve `ALLOW` o `DENY` según el destinatario y el límite configurado.
+Crear las wallets interactivamente:
 
-La aplicación no llama a `transfer()` ni a `sendTransaction()`, no transmite fondos y no guarda una seed phrase.
+```bash
+npm run wallets:setup
+```
 
-## Problema
+O manualmente:
 
-En un restaurante se pierde tiempo esperando para pedir, agregar otro producto o solicitar la cuenta. Además, la toma manual puede generar errores y hace que el personal dedique tiempo a tareas repetitivas.
+```bash
+wdk wallet create --name mesa-cliente-demo --words 12
+wdk wallet create --name mesa-negocio-demo --words 12
+```
 
-## Flujo propuesto del comensal
+**No pegues las seed phrases ni passphrases en GitHub, `.env`, logs, ChatGPT, Telegram, screenshots o el video de la demo.** Guardalas offline.
 
-1. El cliente llega a la mesa.
-2. Escanea el QR asociado a esa mesa.
-3. Se identifica con un nombre simple.
-4. Consulta el menú.
-5. Selecciona productos.
-6. Confirma el pedido.
-7. Puede volver al menú y hacer pedidos adicionales.
-8. Al finalizar, solicita la cuenta y elige cómo pagar.
+Antes de una prueba, desbloquealas con TTL corto:
 
-## Flujo propuesto de cocina
+```bash
+wdk wallet unlock --name mesa-cliente-demo --ttl 5
+wdk wallet unlock --name mesa-negocio-demo --ttl 5
+```
 
-Cuando un comensal confirma, el sistema crea una comanda y la muestra en el panel de cocina.
+Verificación:
 
-Cada comanda debe incluir:
+```bash
+wdk get address --network sepolia --wallet mesa-cliente-demo
+wdk get address --network sepolia --wallet mesa-negocio-demo
+wdk get balance --network sepolia --token usdt --wallet mesa-cliente-demo
+```
 
-- Número de mesa.
-- Nombre del comensal.
-- Productos y cantidades.
-- Aclaraciones del pedido, si existen.
-- Hora de recepción.
-- Indicación de pedido inicial o adicional.
-- Estado actual.
+La wallet del cliente debe tener USDt de prueba y gas de Sepolia suficiente. No uses mainnet ni wallets personales.
 
-### Estados del pedido
+## Flujo principal de la demo
 
-Para el MVP, la comanda completa avanza por cuatro estados:
+1. El comensal escanea el QR de Mesa 12.
+2. Ingresa su nombre.
+3. Elige un plato y puede agregar aclaraciones.
+4. Confirma el pedido.
+5. Si se equivocó, puede quitar un producto mientras el pedido esté `Recibido`.
+6. Cocina ve la comanda y avanza sus estados.
+7. Cuando todo está `Entregado`, el comensal solicita la cuenta.
+8. Elige `Pago lo mío` o `Pago toda la mesa` y propina.
+9. Mesa Abierta lee la wallet local del cliente y la wallet local del negocio.
+10. WDK SDK evalúa destinatario y monto.
+11. WDK CLI ejecuta `wdk send --dry-run --json`.
+12. La interfaz muestra origen, destino, monto y preview.
+13. El usuario confirma explícitamente.
+14. WDK CLI ejecuta `wdk send ... --json` en Sepolia.
+15. Se registra el recibo, balances antes/después y el cobro en el panel interno.
 
-1. **Recibido:** el pedido ingresó al sistema.
-2. **En preparación:** cocina comenzó a prepararlo.
-3. **Listo:** el pedido está listo para retirar o entregar.
-4. **Entregado:** el pedido llegó a la mesa.
+Si WDK falla, la wallet está bloqueada, falta saldo, el preview venció o cambió el monto, **no se marca el pago como cobrado**.
 
-Cuando cocina cambia el estado, el comensal puede verlo desde su celular.
+## Control financiero del MVP
 
-### Pedidos adicionales
+El panel interno muestra gastos pagados por clientes, ingresos cobrados por el negocio, propinas, USDt de testnet recibido y saldo reportado por WDK CLI para la wallet del negocio.
 
-Si alguien pide un trago, postre u otro producto más tarde, se crea una nueva comanda vinculada con la misma mesa. No se modifica silenciosamente la comanda anterior.
+**No muestra “ganancia neta”**, porque todavía no registramos costo de mercadería, personal ni comisiones.
 
-Ejemplo:
+## Asistente del menú
 
-- Mesa 12 · Felipe · Pedido inicial · 20:31.
-- Mesa 12 · Mora · Pedido inicial · 20:32.
-- Mesa 12 · Felipe · Pedido adicional · 21:18.
+El asistente responde a `Plato del día`, `Sugerencias`, `Más recomendado` y consultas simples sobre bebida o postre.
 
-Esto permite que cocina detecte inmediatamente qué se agregó y cuándo.
+Puede usar **QVAC local** mediante su endpoint OpenAI-compatible en loopback. La respuesta queda anclada a productos reales del menú. Si QVAC no está disponible o devuelve una respuesta inválida, se usa un recomendador determinista local de respaldo. No se envían datos del comensal a una IA cloud.
 
-## Alcance recomendado para el MVP de cocina
+## Seguridad WDK
 
-- Una sola pantalla de cocina.
-- Todas las comandas visibles y ordenadas por hora.
-- Cambio de estado de la comanda completa.
-- Identificación clara de pedidos adicionales.
-- Actualización del estado para el cliente.
-- Datos y pagos simulados durante la demo.
+- Sepolia/testnet únicamente para el checkout transmisible.
+- Wallets dedicadas, nunca personales.
+- Seed/passphrase nunca llegan al frontend ni al backend.
+- El backend sólo usa nombres de wallets y direcciones públicas mediante WDK CLI.
+- El camino transmisible falla cerrado si WDK no autoriza.
+- Un fallback simulado nunca autoriza broadcast.
+- Dry-run obligatorio antes de send.
+- Confirmación humana separada antes de transmitir.
+- Preview expirable, de un solo uso y ligado al monto.
 
-## Fuera del MVP
+Detalles técnicos: [`docs/WDK.md`](docs/WDK.md).
 
-- Separación automática entre barra, cocina y postres.
-- Impresión física de comandas.
-- Integración con sistemas gastronómicos existentes.
-- Gestión completa de inventario.
-- Métricas avanzadas de tiempos.
-- Cambio de estado producto por producto.
+## Integración WDK — archivos para el jurado
 
-## Decisión adoptada para el motor del MVP
+- [`src/infrastructure/wdk-cli-checkout-gateway.ts`](src/infrastructure/wdk-cli-checkout-gateway.ts)
+- [`src/infrastructure/wdk-policy-gateway.ts`](src/infrastructure/wdk-policy-gateway.ts)
+- [`src/application/hackathon-extensions-service.ts`](src/application/hackathon-extensions-service.ts)
+- [`src/application/checkout-wallet.ts`](src/application/checkout-wallet.ts)
+- [`scripts/setup-wdk-wallets.mjs`](scripts/setup-wdk-wallets.mjs)
+- [`tests/wdk-cli-checkout-gateway.test.ts`](tests/wdk-cli-checkout-gateway.test.ts)
 
-Cocina actualiza el estado de la comanda completa. El cambio de estado producto por producto queda fuera del MVP.
+## Arquitectura
+
+- `src/domain`: modelo y reglas centrales.
+- `src/application`: casos de uso y orquestación.
+- `src/infrastructure`: memoria, políticas WDK, WDK CLI y QVAC local.
+- `src/api`: HTTP.
+- `web`: React/Vite para comensal y cocina/caja.
+- `tests`: flujos del motor y controles de seguridad.
+
+Ver [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
