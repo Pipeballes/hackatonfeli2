@@ -1,10 +1,10 @@
 {
   "name": "mesa-abierta",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c green,cyan \"npm:dev:api\" \"npm:dev:web\"",
@@ -15,7 +15,8 @@
     "build:web": "vite build --config vite.config.ts",
     "start": "node dist/server/src/index.js",
     "test": "npm run build:server && node --test dist/server/tests/*.test.js",
-    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p web/tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "wallets:setup": "node scripts/setup-wdk-wallets.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@tetherto/wdk": "^1.0.0-beta.16",
+    "@tetherto/wdk-cli": "1.0.0-beta.2",
     "@tetherto/wdk-wallet-evm": "^1.0.0-beta.17",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
