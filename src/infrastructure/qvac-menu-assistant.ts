@@ -2,6 +2,7 @@ import type { MenuItem } from "../domain/model.js";
 
 interface QvacModelsResponse { data?: Array<{ id?: string }> }
 interface QvacChatResponse { choices?: Array<{ message?: { content?: string } }> }
+interface QvacChoice { itemIds?: unknown }
 
 export interface GroundedMenuSuggestion {
   title: string;
@@ -10,45 +11,60 @@ export interface GroundedMenuSuggestion {
 }
 
 export async function tryQvacMenuAssistant(question: string, grounded: GroundedMenuSuggestion) {
-  const base = new URL(process.env.QVAC_BASE_URL ?? "http://127.0.0.1:11434/v1/");
-  if (!isLoopback(base.hostname)) return null;
+  let base: URL;
+  try { base = new URL(process.env.QVAC_BASE_URL ?? "http://127.0.0.1:11434/v1/"); } catch { return null; }
+  if (!isLoopback(base.hostname) || grounded.items.length === 0) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4_000);
   try {
     const model = process.env.QVAC_MODEL?.trim() || await discoverModel(base, controller.signal);
     if (!model) return null;
-    const allowed = grounded.items.map((item) => ({ name: item.name, description: item.description, category: item.category }));
+    const allowedIds = grounded.items.map((item) => item.id);
+    const allowed = grounded.items.map((item) => ({ id: item.id, name: item.name, description: item.description, category: item.category }));
     const response = await fetch(new URL("chat/completions", base), {
       method: "POST",
       signal: controller.signal,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
-        max_tokens: 110,
+        temperature: 0.1,
+        max_tokens: 90,
         reasoning_budget: 0,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "menu_choice",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: { itemIds: { type: "array", minItems: 1, maxItems: Math.min(3, allowedIds.length), items: { type: "string", enum: allowedIds } } },
+              required: ["itemIds"],
+              additionalProperties: false,
+            },
+          },
+        },
         messages: [
-          {
-            role: "system",
-            content: "Sos el asistente local de un restaurante. Respondé en español rioplatense, breve y amable. Sólo podés recomendar platos incluidos en ALLOWED_ITEMS. No inventes ingredientes, precios, disponibilidad ni productos. Si falta información, decilo.",
-          },
-          {
-            role: "user",
-            content: `Consulta: ${question}\nALLOWED_ITEMS=${JSON.stringify(allowed)}\nSugerencia determinista de respaldo: ${grounded.message}`,
-          },
+          { role: "system", content: "Elegí exclusivamente IDs de ALLOWED_ITEMS que respondan mejor a la consulta. Nunca inventes IDs, platos, ingredientes, precios ni disponibilidad. Devolvé sólo el JSON solicitado." },
+          { role: "user", content: `Consulta: ${question}\nALLOWED_ITEMS=${JSON.stringify(allowed)}` },
         ],
       }),
     });
     if (!response.ok) return null;
     const body = await response.json() as QvacChatResponse;
     const content = body.choices?.[0]?.message?.content?.trim();
-    if (!content || content.length > 700) return null;
+    if (!content) return null;
+    let choice: QvacChoice;
+    try { choice = JSON.parse(content) as QvacChoice; } catch { return null; }
+    if (!Array.isArray(choice.itemIds)) return null;
+    const selectedIds = choice.itemIds.filter((value): value is string => typeof value === "string" && allowedIds.includes(value));
+    if (selectedIds.length === 0 || selectedIds.length !== choice.itemIds.length) return null;
+    const selected = selectedIds.map((id) => grounded.items.find((item) => item.id === id)).filter((item): item is MenuItem => Boolean(item));
     return {
       engine: "QVAC_LOCAL" as const,
       title: grounded.title,
-      message: content,
-      items: grounded.items,
-      note: `Respuesta generada localmente con QVAC (${model}) y anclada a productos reales del menú.`,
+      message: `Según tu consulta, te recomiendo ${selected.map((item) => item.name).join(", ")}.`,
+      items: selected,
+      note: `Selección generada localmente con QVAC (${model}) y validada contra IDs reales del menú.`,
     };
   } catch {
     return null;
