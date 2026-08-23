@@ -29,6 +29,7 @@ export class WdkPolicySimulationGateway implements PaymentGateway {
 
   async evaluate(intent: PaymentIntent): Promise<PaymentEvaluation> {
     const amount = this.toTestUsdtBaseUnits(intent.totalInCents);
+    const expectedRecipient = intent.recipientAddress ?? this.config.merchantAddress;
     const wdk = new WDK(WDK.getRandomSeedPhrase(12), { maxConditionTimeoutMs: 2_000 })
       .registerWallet("ethereum", WalletManagerEvm, { chainId: 11155111 })
       .registerPolicy({
@@ -45,7 +46,7 @@ export class WdkPolicySimulationGateway implements PaymentGateway {
             conditions: [({ args }) => {
               const transfer = args[0] as EvmTransferOptions | undefined;
               return transfer?.token.toLowerCase() === this.config.tokenAddress.toLowerCase()
-                && transfer.recipient.toLowerCase() === this.config.merchantAddress.toLowerCase()
+                && transfer.recipient.toLowerCase() === expectedRecipient.toLowerCase()
                 && typeof transfer.amount === "bigint"
                 && transfer.amount > 0n
                 && transfer.amount <= this.config.maxUsdtInBaseUnits;
@@ -60,7 +61,7 @@ export class WdkPolicySimulationGateway implements PaymentGateway {
               const transfer = args[0] as EvmTransferOptions | undefined;
               return !transfer
                 || transfer.token.toLowerCase() !== this.config.tokenAddress.toLowerCase()
-                || transfer.recipient.toLowerCase() !== this.config.merchantAddress.toLowerCase();
+                || transfer.recipient.toLowerCase() !== expectedRecipient.toLowerCase();
             }],
           },
           {
@@ -90,7 +91,7 @@ export class WdkPolicySimulationGateway implements PaymentGateway {
       const account = await wdk.getAccount("ethereum", 0) as unknown as WdkSimulationAccount;
       const result = await account.simulate.transfer({
         token: this.config.tokenAddress,
-        recipient: this.config.merchantAddress,
+        recipient: expectedRecipient,
         amount,
       });
       const matchedRule = result.matched_rule ?? "no-applicable-rule";
@@ -123,6 +124,22 @@ export class ResilientPaymentGateway implements PaymentGateway {
     try {
       return await this.primary.evaluate(intent);
     } catch {
+      // For a real WDK CLI checkout, recipientAddress is injected from the
+      // locally managed business wallet. That path must fail closed: a
+      // deterministic fallback may never authorize a broadcast.
+      if (intent.recipientAddress) {
+        return {
+          provider: "SIMULATED_FALLBACK",
+          decision: "DENY",
+          reason: "WDK no estuvo disponible; por seguridad se bloqueó el pago transmisible.",
+          policyId: "mesa-abierta-fail-closed",
+          matchedRule: "deny-wdk-unavailable",
+          network: "ethereum-sepolia",
+          asset: "USDt-testnet",
+          amountInBaseUnits: "0",
+          broadcast: false,
+        };
+      }
       return this.fallback.evaluate(intent);
     }
   }
