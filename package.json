@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=22.18.0"
   },
+  "allowScripts": {
+    "@tetherto/wdk-cli@1.0.0-beta.2": true
+  },
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c green,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run build:server && node --watch dist/server/src/index.js",
